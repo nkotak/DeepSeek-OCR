@@ -70,67 +70,50 @@ class DeepSeekOCR:
         print("=" * 80)
         print()
 
-        # Try to use huggingface_hub to download
+        # Import weight loader
+        from .load_weights import load_model_weights
+
         try:
-            from huggingface_hub import snapshot_download
             from transformers import AutoTokenizer
 
-            print(f"Downloading model from: {model_name_or_path}")
-            print("(This may take a while on first run...)")
+            print(f"Downloading and loading model: {model_name_or_path}")
+            print("This includes EVERYTHING: vision encoders + language model + weights")
+            print("(First run may take 10-15 minutes to download ~10-15GB)")
             print()
 
-            # Download model files
-            local_dir = snapshot_download(
-                repo_id=model_name_or_path,
-                cache_dir=cache_dir,
-                allow_patterns=["*.json", "*.safetensors", "tokenizer*", "*.txt"],
-            )
+            # Download and load ALL weights (including language model)
+            model_data = load_model_weights(model_name_or_path, cache_dir)
 
-            print(f"✅ Model downloaded to: {local_dir}")
-            print()
+            weights = model_data['weights']
+            config_dict = model_data['config']
+            local_dir = model_data['model_dir']
 
-            # Load tokenizer
             print("Loading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(local_dir, trust_remote_code=True)
+            tokenizer = AutoTokenizer.from_pretrained(str(local_dir), trust_remote_code=True)
             print("✅ Tokenizer loaded")
             print()
 
-        except ImportError:
-            print("⚠️  huggingface_hub not installed")
-            print("Install with: pip install huggingface_hub transformers")
+        except ImportError as e:
+            print(f"❌ ERROR: Required packages not installed: {e}")
             print()
-            print("Falling back to demo mode...")
-            local_dir = None
+            print("Install required packages:")
+            print("  pip install mlx huggingface_hub transformers safetensors")
+            print()
+            raise
 
-            # Dummy tokenizer
-            class DummyTokenizer:
-                vocab = {"<image>": 128256}
-                bos_token_id = 1
-                eos_token_id = 2
-                def encode(self, text, add_special_tokens=False):
-                    return [100, 200, 300]
-                def decode(self, token_ids, skip_special_tokens=True):
-                    return f"[DEMO OUTPUT - {len(token_ids)} tokens]"
-
-            tokenizer = DummyTokenizer()
-
-        # Load MLX model
-        print("Loading MLX model...")
-
-        # TODO: Load actual weights from local_dir
-        # For now, create model with default config
+        # Create MLX model with real config
+        print("Initializing MLX model...")
         config = DeepseekOCRConfig(
             image_token_id=tokenizer.vocab.get("<image>", 128256),
-            n_embed=1280,
-            vocab_size=102400,
+            **{k: v for k, v in config_dict.items() if hasattr(DeepseekOCRConfig, k)}
         )
 
         mlx_model = DeepseekOCRForCausalLM(config)
 
-        # TODO: Load weights from safetensors
-        # mlx_model.load_weights(local_dir)
-
-        print("✅ MLX model loaded")
+        # Load actual weights
+        print("Loading weights into MLX model...")
+        mlx_model.load_weights(weights)
+        print("✅ Weights loaded")
         print()
 
         # Create processor
@@ -141,7 +124,7 @@ class DeepSeekOCR:
         )
 
         print("=" * 80)
-        print("✅ Model ready for inference")
+        print("✅ Model fully loaded and ready for inference")
         print("=" * 80)
         print()
 
@@ -224,18 +207,46 @@ class DeepSeekOCR:
             vision_embeddings,
         )
 
-        # Generate
-        logits = self.model(inputs_embeds=inputs_embeds)
+        # Generate autoregressively
+        max_new_tokens = 2048 if not test_compress else 8192
+        generated_tokens = []
 
-        # Get last token logits and sample
-        next_token_logits = logits[:, -1, :]
-        next_token = mx.argmax(next_token_logits, axis=-1)
+        print(f"Generating up to {max_new_tokens} tokens...")
 
-        # Decode (simplified - real implementation would do autoregressive generation)
+        for step in range(max_new_tokens):
+            # Forward pass
+            logits = self.model(inputs_embeds=inputs_embeds)
+
+            # Get last token logits
+            next_token_logits = logits[:, -1, :]
+
+            # Greedy decoding (temperature = 0)
+            next_token = mx.argmax(next_token_logits, axis=-1)
+            next_token_id = int(next_token[0])
+
+            # Check for EOS
+            if next_token_id == self.tokenizer.eos_token_id:
+                break
+
+            generated_tokens.append(next_token_id)
+
+            # Get embedding for next token and append
+            next_token_embed = self.model.language_model.get_input_embeddings(next_token)
+            inputs_embeds = mx.concatenate([
+                inputs_embeds,
+                next_token_embed[:, None, :]
+            ], axis=1)
+
+            if (step + 1) % 100 == 0:
+                print(f"  Generated {step + 1} tokens...")
+
+        # Decode all generated tokens
         if hasattr(self.tokenizer, 'decode'):
-            result = self.tokenizer.decode([int(next_token[0])], skip_special_tokens=True)
+            result = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
         else:
-            result = f"[Generated {int(next_token[0])}]"
+            result = f"[Generated {len(generated_tokens)} tokens]"
+
+        print(f"✅ Generated {len(generated_tokens)} tokens")
 
         # Save results if requested
         if save_results and output_path:

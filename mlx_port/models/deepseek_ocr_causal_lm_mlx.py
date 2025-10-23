@@ -196,6 +196,23 @@ class DeepseekOCRForCausalLM(nn.Module):
         # Store image token ID
         self.image_token_id = config.image_token_id
 
+    def load_weights(self, weights: Dict[str, mx.array]):
+        """
+        Load weights from HuggingFace download into MLX model.
+
+        This loads ALL weights: vision encoders + language model.
+
+        Args:
+            weights: Dictionary of weight name -> MLX array
+        """
+        print(f"Loading {len(weights)} weight tensors into model...")
+
+        # Update model parameters with loaded weights
+        # MLX nn.Module has update() method for this
+        self.update(weights)
+
+        print("✅ All weights loaded successfully")
+
     def freeze_vision_models(self):
         """Freeze vision encoder parameters (useful for fine-tuning)."""
         self.sam_model.freeze()
