@@ -184,6 +184,33 @@ def mlx_random_image_large(large_image_shape, random_seed):
 # ============================================================================
 
 @pytest.fixture
+def random_image_tensor(random_seed):
+    """
+    Random image tensor for testing (both PyTorch and MLX versions)
+
+    Returns:
+        Tuple[torch.Tensor, mx.array]: (pytorch_tensor, mlx_array)
+    """
+    try:
+        import torch
+        import mlx.core as mx
+
+        # Set seed for reproducibility
+        torch.manual_seed(random_seed)
+
+        # Create PyTorch tensor
+        torch_tensor = torch.randn(2, 3, 224, 224)
+
+        # Convert to MLX
+        mlx_tensor = mx.array(torch_tensor.numpy())
+
+        return torch_tensor, mlx_tensor
+
+    except ImportError as e:
+        pytest.skip(f"Required library not available: {e}")
+
+
+@pytest.fixture
 def pytorch_random_image_small(small_image_shape, random_seed):
     """Random PyTorch image tensor (small)"""
     try:

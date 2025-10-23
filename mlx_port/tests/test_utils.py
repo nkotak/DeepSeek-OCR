@@ -506,6 +506,48 @@ def print_tensor_info(tensor, name: str = "Tensor"):
 
 
 # ============================================================================
+# Standalone Helper Functions
+# ============================================================================
+
+def create_test_image(batch_size: int = 1, size: int = 224):
+    """
+    Create test image tensors for PyTorch and MLX.
+
+    This is a convenience function for quickly creating paired test images
+    in unit tests.
+
+    Args:
+        batch_size: Batch size for the image tensor
+        size: Image size (both height and width)
+
+    Returns:
+        Tuple[torch.Tensor, mx.array]: (pytorch_tensor, mlx_array) with
+            shape [batch_size, 3, size, size]
+
+    Example:
+        >>> torch_img, mlx_img = create_test_image(batch_size=2, size=224)
+        >>> torch_img.shape
+        torch.Size([2, 3, 224, 224])
+        >>> list(mlx_img.shape)
+        [2, 3, 224, 224]
+    """
+    try:
+        import torch
+        import mlx.core as mx
+
+        # Create random image tensor in PyTorch
+        torch_img = torch.randn(batch_size, 3, size, size)
+
+        # Convert to MLX
+        mlx_img = mx.array(torch_img.numpy())
+
+        return torch_img, mlx_img
+
+    except ImportError as e:
+        raise ImportError(f"Required library not available: {e}")
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -515,4 +557,5 @@ __all__ = [
     'BenchmarkHelper',
     'assert_shapes_equal',
     'print_tensor_info',
+    'create_test_image',
 ]
