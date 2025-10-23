@@ -1,0 +1,92 @@
+# DeepSeek-OCR MLX Port - Requirements
+# Installation: pip install -r mlx_port/requirements_mlx.txt
+
+# ============================================================================
+# Core MLX Framework
+# ============================================================================
+# MLX core library - Metal acceleration for Apple Silicon
+mlx>=0.28.0,<0.30.0
+
+# MLX-LM - Language model inference with MLX
+mlx-lm>=0.10.0,<1.0.0
+
+# ============================================================================
+# Transformers Ecosystem
+# ============================================================================
+# HuggingFace Transformers - for model loading and tokenization
+transformers==4.46.3
+
+# Tokenizers - fast tokenization library
+tokenizers==0.20.3
+
+# ============================================================================
+# Image Processing
+# ============================================================================
+# Pillow - image loading and manipulation
+Pillow>=10.0.0,<11.0.0
+
+# NumPy - numerical operations (for PyTorch compatibility layer)
+numpy>=1.24.0,<2.0.0
+
+# ============================================================================
+# Utility Libraries
+# ============================================================================
+# EasyDict - easy dictionary access
+easydict>=1.10
+
+# Addict - another dictionary utility
+addict>=2.4.0
+
+# ============================================================================
+# Document Processing
+# ============================================================================
+# PyMuPDF - PDF processing
+PyMuPDF>=1.23.0
+
+# img2pdf - image to PDF conversion
+img2pdf>=0.5.0
+
+# ============================================================================
+# Testing Framework
+# ============================================================================
+# pytest - testing framework
+pytest>=7.4.0,<8.0.0
+
+# pytest-cov - coverage reporting
+pytest-cov>=4.1.0,<5.0.0
+
+# pytest-xdist - parallel testing
+pytest-xdist>=3.3.0,<4.0.0
+
+# pytest-benchmark - performance benchmarking
+pytest-benchmark>=4.0.0,<5.0.0
+
+# pytest-mock - mocking utilities
+pytest-mock>=3.12.0,<4.0.0
+
+# ============================================================================
+# Development Tools (Optional)
+# ============================================================================
+# black - code formatting
+black>=23.0.0; extra == "dev"
+
+# flake8 - linting
+flake8>=6.0.0; extra == "dev"
+
+# mypy - type checking
+mypy>=1.5.0; extra == "dev"
+
+# isort - import sorting
+isort>=5.12.0; extra == "dev"
+
+# ============================================================================
+# PyTorch (for validation/comparison only - not required for MLX inference)
+# ============================================================================
+# torch - PyTorch for validation tests
+torch>=2.0.0; extra == "validation"
+
+# torchvision - vision utilities for validation
+torchvision>=0.15.0; extra == "validation"
+
+# flash-attn - for comparison with original implementation
+flash-attn>=2.7.0; extra == "validation"
