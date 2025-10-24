@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek-OCR MLX</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="main-title">📄 DeepSeek-OCR MLX</h1>
+            <p class="subtitle">Optical Character Recognition powered by MLX on Apple Silicon</p>
+        </header>
+
+        <!-- Main Content -->
+        <div class="content">
+            <!-- Left Panel: Input -->
+            <div class="panel input-panel">
+                <h2>📤 Input</h2>
+
+                <!-- File Upload -->
+                <div class="upload-section">
+                    <label for="file-upload" class="upload-label">
+                        <div class="upload-box" id="upload-box">
+                            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            <p class="upload-text">Click to upload or drag and drop</p>
+                            <p class="upload-subtext">PNG, JPG, JPEG, WEBP, PDF</p>
+                        </div>
+                    </label>
+                    <input type="file" id="file-upload" accept="image/*,.pdf" style="display: none;">
+                </div>
+
+                <!-- Image Preview -->
+                <div id="image-preview" class="image-preview" style="display: none;">
+                    <img id="preview-img" src="" alt="Preview">
+                    <div id="image-info" class="image-info"></div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="config-section">
+                    <h3>⚙️ Configuration</h3>
+
+                    <!-- Prompt Template -->
+                    <div class="form-group">
+                        <label for="prompt-template">Prompt Template</label>
+                        <select id="prompt-template" class="form-control">
+                            <option value="free">Free OCR</option>
+                            <option value="markdown">Markdown Conversion</option>
+                            <option value="grounding">OCR with Grounding</option>
+                            <option value="figure">Parse Figure</option>
+                            <option value="description">Detailed Description</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom Prompt -->
+                    <div class="form-group" id="custom-prompt-group" style="display: none;">
+                        <label for="custom-prompt">Custom Prompt</label>
+                        <textarea id="custom-prompt" class="form-control" rows="3" placeholder="<image>\nYour prompt here..."></textarea>
+                    </div>
+
+                    <!-- Prompt Preview -->
+                    <div class="prompt-preview" id="prompt-preview">
+                        <strong>Prompt:</strong> <code>&lt;image&gt;\nFree OCR.</code>
+                    </div>
+
+                    <!-- Max Tokens -->
+                    <div class="form-group">
+                        <label for="max-tokens">Max Tokens: <span id="max-tokens-value">2048</span></label>
+                        <input type="range" id="max-tokens" class="slider" min="100" max="8192" value="2048" step="100">
+                    </div>
+
+                    <!-- Temperature -->
+                    <div class="form-group">
+                        <label for="temperature">Temperature: <span id="temperature-value">0.0</span></label>
+                        <input type="range" id="temperature" class="slider" min="0.0" max="2.0" value="0.0" step="0.1">
+                    </div>
+
+                    <!-- Top-p -->
+                    <div class="form-group">
+                        <label for="top-p">Top-p: <span id="top-p-value">0.9</span></label>
+                        <input type="range" id="top-p" class="slider" min="0.0" max="1.0" value="0.9" step="0.05">
+                    </div>
+
+                    <!-- Cropping -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cropping" checked>
+                            Multi-Scale Cropping
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Process Button -->
+                <button id="process-btn" class="btn btn-primary" disabled>
+                    🚀 Run OCR
+                </button>
+            </div>
+
+            <!-- Right Panel: Output -->
+            <div class="panel output-panel">
+                <h2>📝 Output</h2>
+
+                <!-- Status -->
+                <div id="status" class="status-box" style="display: none;">
+                    <div id="status-content"></div>
+                </div>
+
+                <!-- Output Text -->
+                <div id="output-section" style="display: none;">
+                    <div class="output-header">
+                        <span id="token-count">0 tokens generated</span>
+                        <button id="copy-btn" class="btn btn-small">📋 Copy</button>
+                        <button id="download-btn" class="btn btn-small">💾 Download</button>
+                    </div>
+                    <textarea id="output-text" class="output-textarea" readonly></textarea>
+                </div>
+
+                <!-- Examples (shown when no output) -->
+                <div id="examples-section">
+                    <h3>📚 Example Prompts</h3>
+
+                    <div class="example-card">
+                        <h4>Free OCR</h4>
+                        <p>Basic OCR without special formatting</p>
+                        <code>&lt;image&gt;\nFree OCR.</code>
+                    </div>
+
+                    <div class="example-card">
+                        <h4>Markdown Conversion</h4>
+                        <p>Convert document to markdown with formatting</p>
+                        <code>&lt;image&gt;\n&lt;|grounding|&gt;Convert the document to markdown.</code>
+                    </div>
+
+                    <div class="example-card">
+                        <h4>Parse Figure</h4>
+                        <p>Extract information from charts and figures</p>
+                        <code>&lt;image&gt;\nParse the figure.</code>
+                    </div>
+
+                    <div class="example-card">
+                        <h4>Detailed Description</h4>
+                        <p>Get detailed image description</p>
+                        <code>&lt;image&gt;\nDescribe this image in detail.</code>
+                    </div>
+                </div>
+
+                <!-- Connection Status -->
+                <div id="connection-status" class="info-box">
+                    <strong>⚠️ Backend Required</strong><br>
+                    This UI requires a Python backend server.<br>
+                    Run: <code>python server.py</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>
+                <strong>DeepSeek-OCR MLX</strong> |
+                <a href="https://github.com/deepseek-ai/DeepSeek-OCR" target="_blank">Original Repo</a> |
+                Ported to MLX for Apple Silicon
+            </p>
+            <p>
+                <em>Note: This is a demonstration interface. For production use, download the full model weights.</em>
+            </p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
