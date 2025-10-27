@@ -1,122 +1,99 @@
 """
-Simple FastAPI server for DeepSeek-OCR MLX web UI.
+FastAPI server for DeepSeek-OCR MLX.
 
-This server handles image upload and OCR processing for the HTML/CSS/JS UI.
+Provides REST API for OCR processing.
 
 Usage:
     python server.py
 
+Then open web_ui/index.html in your browser.
+
 Requirements:
-    pip install fastapi uvicorn python-multipart Pillow
+    pip install fastapi uvicorn python-multipart mlx huggingface_hub transformers safetensors Pillow
 """
 
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
 import sys
 from pathlib import Path
+import tempfile
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Check MLX
 try:
     import mlx.core as mx
-    from models.deepseek_ocr_causal_lm_mlx import DeepseekOCRConfig, build_deepseek_ocr_model
-    from preprocessing.image_processor_mlx import DeepseekOCRProcessor
-    from inference.pipeline_mlx import DeepSeekOCRPipeline
     MLX_AVAILABLE = True
 except ImportError as e:
     MLX_AVAILABLE = False
     IMPORT_ERROR = str(e)
 
+# Import our API
+try:
+    from deepseek_ocr_mlx import DeepSeekOCR
+    API_AVAILABLE = True
+except ImportError as e:
+    API_AVAILABLE = False
+    API_ERROR = str(e)
 
-# Create FastAPI app
-app = FastAPI(title="DeepSeek-OCR MLX API")
 
-# Enable CORS for local development
+# Create app
+app = FastAPI(title="DeepSeek-OCR MLX API", version="1.0")
+
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global model instance (loaded on startup)
-pipeline = None
-model_mode = "Not Loaded"
+# Global model instance
+model = None
+model_error = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """Load model on startup."""
-    global pipeline, model_mode
+    global model, model_error
 
     if not MLX_AVAILABLE:
-        print(f"WARNING: MLX not available: {IMPORT_ERROR}")
-        print("Server will run but OCR functionality will be limited.")
+        model_error = f"MLX not available: {IMPORT_ERROR}"
+        print(f"ERROR: {model_error}")
+        return
+
+    if not API_AVAILABLE:
+        model_error = f"API not available: {API_ERROR}"
+        print(f"ERROR: {model_error}")
         return
 
     try:
+        print("=" * 80)
         print("Loading DeepSeek-OCR model...")
+        print("=" * 80)
+        print()
+        print("First run will download ~10-15GB from HuggingFace")
+        print("This may take 10-15 minutes...")
+        print()
 
-        # Check for weights
-        weights_dir = Path(__file__).parent / "weights"
-        weights_available = weights_dir.exists() and (weights_dir / "config.json").exists()
+        model = DeepSeekOCR.from_pretrained('deepseek-ai/DeepSeek-OCR')
 
-        if not weights_available:
-            print("WARNING: Model weights not found. Using demo mode.")
-            print("Download weights for full functionality.")
-
-            # Create demo model
-            config = DeepseekOCRConfig(
-                image_token_id=128256,
-                n_embed=128,
-                vocab_size=102400,
-                hidden_size=128,
-            )
-            model = build_deepseek_ocr_model(config)
-
-            # Create dummy tokenizer
-            class DummyTokenizer:
-                vocab = {"<image>": 128256, "<pad>": 0}
-                bos_token_id = 1
-                eos_token_id = 2
-                pad_token_id = 0
-                def encode(self, text, add_special_tokens=False):
-                    return [hash(word) % 1000 + 100 for word in text.split()]
-                def decode(self, token_ids, skip_special_tokens=True):
-                    return " ".join([f"token_{id}" for id in token_ids[:20]])
-
-            tokenizer = DummyTokenizer()
-            model_mode = "Demo Mode"
-        else:
-            # TODO: Load real model from weights
-            config = DeepseekOCRConfig(
-                image_token_id=128256,
-                n_embed=1280,
-                vocab_size=102400,
-            )
-            model = build_deepseek_ocr_model(config)
-            tokenizer = None  # Load real tokenizer
-            model_mode = "Full Model"
-
-        # Create processor
-        processor = DeepseekOCRProcessor(
-            tokenizer,
-            image_size=1024,
-            base_size=1280,
-        )
-
-        # Create pipeline
-        pipeline = DeepSeekOCRPipeline(model, processor, tokenizer)
-
-        print(f"Model loaded successfully ({model_mode})")
+        print()
+        print("=" * 80)
+        print("✅ Model loaded and ready")
+        print("=" * 80)
+        print()
 
     except Exception as e:
-        print(f"Failed to load model: {str(e)}")
+        model_error = str(e)
+        print(f"ERROR loading model: {model_error}")
         import traceback
         traceback.print_exc()
 
@@ -125,119 +102,76 @@ async def startup_event():
 async def health_check():
     """Health check endpoint."""
     return {
-        "status": "ok",
+        "status": "ok" if model is not None else "error",
         "mlx_available": MLX_AVAILABLE,
-        "model_loaded": pipeline is not None,
-        "model_mode": model_mode,
+        "api_available": API_AVAILABLE,
+        "model_loaded": model is not None,
+        "error": model_error,
     }
 
 
 @app.post("/process")
 async def process_image(
     file: UploadFile = File(...),
-    prompt: str = Form(...),
-    max_tokens: int = Form(2048),
-    temperature: float = Form(0.0),
-    top_p: float = Form(0.9),
-    cropping: bool = Form(True),
+    prompt: str = Form("<image>\nFree OCR."),
+    base_size: int = Form(1024),
+    image_size: int = Form(640),
+    crop_mode: bool = Form(True),
 ):
     """
-    Process an uploaded image with OCR.
+    Process an image with OCR.
 
     Args:
         file: Uploaded image file
         prompt: Text prompt with <image> placeholder
-        max_tokens: Maximum tokens to generate
-        temperature: Sampling temperature
-        top_p: Nucleus sampling threshold
-        cropping: Enable multi-scale cropping
+        base_size: Base resolution (512/640/1024/1280)
+        image_size: Crop resolution (512/640/1024/1280)
+        crop_mode: Enable multi-scale cropping
 
     Returns:
-        JSON with generated text and metadata
+        JSON with generated text
     """
-    if pipeline is None:
-        return JSONResponse(
+    if model is None:
+        raise HTTPException(
             status_code=500,
-            content={"error": "Model not loaded. Check server logs."}
+            detail=f"Model not loaded: {model_error}"
         )
 
     try:
         # Read uploaded file
         contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert('RGB')
 
-        # Handle PDF
-        if file.content_type == "application/pdf":
-            try:
-                import fitz  # PyMuPDF
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+            image.save(tmp.name)
+            tmp_path = tmp.name
 
-                # Convert first page to image
-                pdf_document = fitz.open(stream=contents, filetype="pdf")
-                page = pdf_document[0]
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom
-                img_bytes = pix.tobytes("png")
-                image = Image.open(io.BytesIO(img_bytes))
-
-            except ImportError:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "PyMuPDF not installed. Install: pip install pymupdf"}
-                )
-            except Exception as e:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": f"Failed to process PDF: {str(e)}"}
-                )
-        else:
-            # Handle image
-            image = Image.open(io.BytesIO(contents))
-
-        # Convert to RGB if needed
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-
-        # Run inference
-        result = pipeline.generate(
-            images=[image],
-            prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            cropping=cropping,
-        )
+        try:
+            # Run inference
+            result = model.infer(
+                prompt=prompt,
+                image_file=tmp_path,
+                base_size=base_size,
+                image_size=image_size,
+                crop_mode=crop_mode,
+            )
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_path)
 
         return {
-            "text": result.get('text', ''),
-            "num_tokens": result.get('num_tokens', 0),
-            "token_ids": result.get('token_ids', []),
-            "model_mode": model_mode,
+            "text": result,
+            "status": "success",
         }
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return JSONResponse(
+        raise HTTPException(
             status_code=500,
-            content={"error": f"Processing failed: {str(e)}"}
+            detail=f"Processing failed: {str(e)}"
         )
-
-
-@app.post("/stream")
-async def stream_generate(
-    file: UploadFile = File(...),
-    prompt: str = Form(...),
-    max_tokens: int = Form(2048),
-    temperature: float = Form(0.0),
-    top_p: float = Form(0.9),
-    cropping: bool = Form(True),
-):
-    """
-    Process an image with streaming output (for future WebSocket support).
-    """
-    # TODO: Implement streaming with Server-Sent Events or WebSockets
-    return JSONResponse(
-        status_code=501,
-        content={"error": "Streaming not yet implemented. Use /process endpoint."}
-    )
 
 
 if __name__ == "__main__":
@@ -247,15 +181,20 @@ if __name__ == "__main__":
     print("DeepSeek-OCR MLX Server")
     print("=" * 80)
     print()
-    print("Starting server...")
-    print("API docs: http://localhost:8000/docs")
-    print("Health check: http://localhost:8000/health")
+    print("Starting server on http://localhost:8000")
+    print()
+    print("API endpoints:")
+    print("  - GET  /health  - Health check")
+    print("  - POST /process - Process image")
+    print("  - Docs: http://localhost:8000/docs")
     print()
     print("For web UI:")
-    print("1. Open web_ui/index.html in your browser")
-    print("2. Or use Streamlit: streamlit run app.py")
+    print("  Open web_ui/index.html in your browser")
     print()
-    print("Press Ctrl+C to stop the server")
+    print("Or use Streamlit:")
+    print("  streamlit run app.py")
+    print()
+    print("Press Ctrl+C to stop")
     print("=" * 80)
     print()
 
